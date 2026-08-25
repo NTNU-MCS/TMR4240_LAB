@@ -1,0 +1,6 @@
+numpy
+scipy
+matplotlib
+mcsimpy @ git+https://github.com/NTNU-MCS/mcsimpy.git@55af1b363c33abe1bcbb6c35bcea39f108d3ce17
+notebook
+pytest

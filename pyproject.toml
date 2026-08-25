@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tmr4240-project"
+version = "2026.1"
+description = "TMR4240 Marine Control Systems I - Project: Design of a Dynamic Positioning System"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "scipy",
+    "matplotlib",
+    "mcsimpy @ git+https://github.com/NTNU-MCS/mcsimpy.git@55af1b363c33abe1bcbb6c35bcea39f108d3ce17",
+    "notebook",
+    "pytest",
+]
+
+[tool.setuptools]
+packages = ["models", "simulation", "part_1"]
