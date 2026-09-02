@@ -63,6 +63,21 @@ class Current:
         eta: np.ndarray,
         nu: np.ndarray,
     ) -> np.ndarray:
-        # TODO: Replace this placeholder with your current model.
-        # Default: no current.
-        return np.zeros(6)
+
+    #Direction: Constant if beta_end is None or duration <= 0.0, else linearly varying
+        if self.beta_end is None or self.duration <= 0.0:
+            beta = self.beta
+        else: 
+            frac = float(np.clip(t / self.duration, 0.0, 1.0))
+            beta = self.beta + frac * float(self.beta_end - self.beta)
+
+    #"From" convention: Add pi to beta if semantics is "from"
+        if self.semantics == "from":
+            beta += np.pi
+
+    # Generalized NED current velocity (towards). Only V_N and V_E are used by the 3-DOF model.
+        nu_c_ned = np.zeros(6)
+        nu_c_ned[0] = self.speed * np.cos(beta)  # V_N
+        nu_c_ned[1] = self.speed * np.sin(beta)  # V_E
+        return nu_c_ned
+    
