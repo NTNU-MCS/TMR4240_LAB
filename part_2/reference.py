@@ -29,8 +29,11 @@ model here directly enables velocity/acceleration feedforward there.
 from typing import Tuple
 import numpy as np
 
-# Per-axis tuning parameters live with the rest of the Part 2 configuration.
+# Per-axis tuning parameters live with the rest of the Part 1 configuration.
 from part_2.config import RefAxisConfig
+
+# To avoid heading wrong direction
+from simulation.utils import wrap_angle_pi
 
 
 class ReferenceModel:
@@ -64,7 +67,30 @@ class ReferenceModel:
         self, t: float, dt: float, eta_cmd: np.ndarray
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         # TODO: Replace this pass-through placeholder with your reference model.
-        self.eta_ref = np.asarray(eta_cmd, dtype=float).reshape(6).copy()
-        self.nu_ref = np.zeros(6)
-        self.acc_ref = np.zeros(6)
+
+        #Extract the frequency and damping coefficient from the configuration
+        wn_xy = self.cfg_xy.wn
+        zeta_xy = self.cfg_xy.zeta
+
+        wn_psi = self.cfg_psi.wn
+        zeta_psi = self.cfg_psi.zeta
+
+        
+
+        #Calculate the acceleration refrences
+        self.acc_ref[0] = (wn_xy**2)*(eta_cmd[0]-self.eta_ref[0]) - 2*zeta_xy*wn_xy*self.nu_ref[0]
+        self.acc_ref[1] = (wn_xy**2)*(eta_cmd[1]-self.eta_ref[1]) - 2*zeta_xy*wn_xy*self.nu_ref[1]
+        self.acc_ref[5] = (wn_psi**2)*wrap_angle_pi(eta_cmd[5] - self.eta_ref[5]) - 2*zeta_psi*wn_psi*self.nu_ref[5]
+
+        #Integrate acceleration to velocity, then velocity to position        
+        self.nu_ref[0] = self.nu_ref[0] + dt*self.acc_ref[0]        
+        self.eta_ref[0] = self.eta_ref[0] + dt*self.nu_ref[0]
+
+        self.nu_ref[1] = self.nu_ref[1] + dt*self.acc_ref[1]        
+        self.eta_ref[1] = self.eta_ref[1] + dt*self.nu_ref[1]
+
+        self.nu_ref[5] = self.nu_ref[5] + dt*self.acc_ref[5]        
+        self.eta_ref[5] = self.eta_ref[5] + dt*self.nu_ref[5]
+        self.eta_ref[5] = wrap_angle_pi(self.eta_ref[5])
+        
         return self.eta_ref, self.nu_ref, self.acc_ref
