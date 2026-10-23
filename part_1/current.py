@@ -63,6 +63,21 @@ class Current:
         eta: np.ndarray,
         nu: np.ndarray,
     ) -> np.ndarray:
-        # TODO: Replace this placeholder with your current model.
-        # Default: no current.
-        return np.zeros(6)
+            if self.beta_end is None:
+                 beta = self.beta
+            elif self.duration > 0.0:
+                progress = np.clip(t / self.duration, 0.0, 1.0)
+                beta = self.beta + progress * (self.beta_end - self.beta)
+            else:
+                beta = self.beta_end
+
+            if self.semantics == "from":
+                beta += np.pi
+            elif self.semantics != "towards":
+                raise ValueError("semantics must be 'towards' or 'from'")
+
+            current_ned = np.zeros(6)
+            current_ned[0] = self.speed * np.cos(beta)
+            current_ned[1] = self.speed * np.sin(beta)
+            return current_ned
+    

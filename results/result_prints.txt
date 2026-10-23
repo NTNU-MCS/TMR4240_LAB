@@ -1,0 +1,67 @@
+sim1a:
+Fraction of samples at/near saturation:
+  Tunnel_Bow: saturated 0.0% of the run (peak 9.2 kN of 32.0 kN)
+  Azimuth_1: saturated 0.0% of the run (peak 4.5 kN of 80.0 kN)
+  Azimuth_2: saturated 0.0% of the run (peak 4.5 kN of 80.0 kN)
+
+Peak |controller wrench| (before allocation):
+  Fx: 0.0 kN
+  Fy: 18.1 kN
+  Mz: 3.0 kNm
+
+1b
+Fraction of samples at/near saturation:
+  Tunnel_Bow: saturated 0.0% of the run (peak 18.5 kN of 32.0 kN)
+  Azimuth_1: saturated 0.0% of the run (peak 6.8 kN of 80.0 kN)
+  Azimuth_2: saturated 0.0% of the run (peak 6.8 kN of 80.0 kN)
+
+Peak |controller wrench| (before allocation):
+  Fx: 0.5 kN
+  Fy: 31.8 kN
+  Mz: 58.0 kNm
+Simulation finished.
+
+2
+Fraction of samples at/near saturation:
+  Tunnel_Bow: saturated 0.0% of the run (peak 8.8 kN of 32.0 kN)
+  Azimuth_1: saturated 0.0% of the run (peak 4.2 kN of 80.0 kN)
+  Azimuth_2: saturated 0.0% of the run (peak 4.2 kN of 80.0 kN)
+
+Peak |controller wrench| (before allocation):
+  Fx: 1.1 kN
+  Fy: 17.1 kN
+  Mz: 13.5 kNm
+
+3 true
+Fraction of samples at/near saturation:
+  Tunnel_Bow: saturated 0.0% of the run (peak 30.9 kN of 32.0 kN)
+  Azimuth_1: saturated 0.0% of the run (peak 38.4 kN of 80.0 kN)
+  Azimuth_2: saturated 0.0% of the run (peak 39.8 kN of 80.0 kN)
+
+Peak |controller wrench| (before allocation):
+  Fx: 62.9 kN
+  Fy: 77.3 kN
+  Mz: 341.3 kNm
+
+3 false
+Fraction of samples at/near saturation:
+  Tunnel_Bow: saturated 1.1% of the run (peak 32.0 kN of 32.0 kN)
+  Azimuth_1: saturated 0.3% of the run (peak 80.0 kN of 80.0 kN)
+  Azimuth_2: saturated 1.0% of the run (peak 80.0 kN of 80.0 kN)
+
+Peak |controller wrench| (before allocation):
+  Fx: 240.5 kN
+  Fy: 283.0 kN
+  Mz: 857.5 kNm
+
+4
+Fraction of samples at/near saturation:
+  Tunnel_Bow: saturated 3.1% of the run (peak 32.0 kN of 32.0 kN)
+  Azimuth_1: saturated 1.5% of the run (peak 80.0 kN of 80.0 kN)
+  Azimuth_2: saturated 1.5% of the run (peak 80.0 kN of 80.0 kN)
+
+Peak |controller wrench| (before allocation):
+  Fx: 374.9 kN
+  Fy: 532.8 kN
+  Mz: 144.5 kNm
+Simulation finished.

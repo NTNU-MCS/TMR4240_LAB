@@ -30,24 +30,35 @@ import numpy as np
 def thrust_utilization(logs, thrusters) -> np.ndarray:
     """Instantaneous thrust utilisation U_T(t) in percent, from ACTUAL thrusts.
 
-    TODO (students): implement the definition above — the sum of the
-    magnitudes of the individual actuator forces (``logs.u``, one column per
-    thruster) as a percentage of the sum of the maximum nominal thrusts of
-    all active thrusters (``ThrusterConfig.u_max``).  Return one value per
-    time sample, shape ``(len(logs.t),)``.
+    The denominator is the installed nominal capacity of the supplied thrusters.
     """
-    raise NotImplementedError(
-        "implement thrust_utilization() in part_2/utilization.py — the "
-        "definition is in the project text (Part 2, Simulation 5)")
+    thrusts = np.asarray(logs.u, dtype=float)
+    if thrusts.ndim != 2 or thrusts.shape[1] != len(thrusters):
+      raise ValueError("logs.u must have one thrust column per thruster")
+    capacity = float(sum(thr.u_max for thr in thrusters))
+    if capacity <= 0.0:
+      raise ValueError("total nominal thrust capacity must be positive")
+    return 100.0 * np.sum(np.abs(thrusts), axis=1) / capacity
 
 
 def average_utilization(logs, thrusters, t_from: float | None = None) -> float:
     """Average thrust utilisation [%] over ``t >= t_from`` (default: the second
     half of the run, so the transient is excluded).
 
-    TODO (students): implement — the time average of
-    :func:`thrust_utilization` over the evaluation window.
+    By default the evaluation window starts halfway through the logged run.
     """
-    raise NotImplementedError(
-        "implement average_utilization() in part_2/utilization.py — the "
-        "definition is in the project text (Part 2, Simulation 5)")
+    times = np.asarray(logs.t, dtype=float).reshape(-1)
+    values = thrust_utilization(logs, thrusters)
+    if len(times) != len(values) or len(times) == 0:
+      raise ValueError("logs.t and logs.u must contain the same nonzero number of samples")
+    if np.any(np.diff(times) < 0.0):
+      raise ValueError("logs.t must be nondecreasing")
+    start = times[0] + 0.5 * (times[-1] - times[0]) if t_from is None else float(t_from)
+    selected = times >= start
+    if not np.any(selected):
+      raise ValueError("t_from is later than the final log sample")
+    window_times = times[selected]
+    window_values = values[selected]
+    if len(window_times) == 1 or window_times[-1] == window_times[0]:
+      return float(window_values[-1])
+    return float(np.trapezoid(window_values, window_times) / (window_times[-1] - window_times[0]))

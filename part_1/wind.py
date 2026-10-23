@@ -85,13 +85,15 @@ class Wind:
     def __init__(self, mean_speed: float = 0.0, beta: float = 0.0, *,
                  semantics: str = "from", sigma_slow: float = 0.0,
                  tau_slow: float = 120.0, seed: int | None = None):
-        # TODO: Store and use the parameters above in step().
         self.mean_speed = float(mean_speed)
         self.beta = float(beta)
         self.semantics = semantics
         self.sigma_slow = float(sigma_slow)
         self.tau_slow = float(tau_slow)
         self.seed = seed
+        self._slow = 0.0
+        self._rng = np.random.default_rng(seed)
+        self._alpha_deg, self._coefficients = load_wind_coefficients()
 
     def step(
         self,
@@ -100,8 +102,42 @@ class Wind:
         eta: np.ndarray,
         nu: np.ndarray,
     ) -> Tuple[np.ndarray, Dict[str, float]]:
-        # TODO: Replace this placeholder with your wind load model.
-        # Default: no wind loads.
-        tau_w6 = np.zeros(6)
-        info = {"U": 0.0, "beta_ned": 0.0, "alpha_body": 0.0}
+        if self.semantics not in {"from", "towards"}:
+            raise ValueError("semantics must be 'from' or 'towards'")
+
+        if self.sigma_slow > 0.0:
+            if self.tau_slow <= 0.0:
+                raise ValueError("tau_slow must be > 0 when sigma_slow is nonzero")
+            decay = np.exp(-dt / self.tau_slow)
+            noise_scale = self.sigma_slow * np.sqrt(1.0 - decay**2)
+            self._slow = decay * self._slow + noise_scale * self._rng.normal()
+
+        ambient_speed = max(0.0, self.mean_speed + self._slow)
+        beta_ned = self.beta + (np.pi if self.semantics == "from" else 0.0)
+        beta_ned = float(beta_ned % (2.0 * np.pi))
+
+        wind_ned = ambient_speed * np.array([
+            np.cos(beta_ned), np.sin(beta_ned)
+        ])
+        psi = float(np.asarray(eta).reshape(6)[5])
+        c, s = np.cos(psi), np.sin(psi)
+        wind_body = np.array([
+            c * wind_ned[0] + s * wind_ned[1],
+            -s * wind_ned[0] + c * wind_ned[1],
+        ])
+        vessel_body = np.asarray(nu, dtype=float).reshape(6)[:2]
+        relative_body = wind_body - vessel_body
+        relative_speed = float(np.linalg.norm(relative_body))
+        alpha_body = float(np.arctan2(relative_body[1], relative_body[0]) % (2.0 * np.pi))
+        alpha_deg = np.degrees(alpha_body)
+        coefficients = np.array([
+            np.interp(alpha_deg, self._alpha_deg, self._coefficients[:, i])
+            for i in range(self._coefficients.shape[1])
+        ])
+        tau_w6 = relative_speed**2 * coefficients
+        info = {
+            "U": ambient_speed,
+            "beta_ned": beta_ned,
+            "alpha_body": alpha_body,
+        }
         return tau_w6, info

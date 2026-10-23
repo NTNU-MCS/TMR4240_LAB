@@ -58,6 +58,7 @@ and alpha_rw are the relative wind speed and angle in the BODY frame.
 from pathlib import Path
 from typing import Dict, Tuple
 import numpy as np
+from simulation.utils import wrap_angle_pi
 
 _WIND_COEFF_FILE = Path(__file__).resolve().parent.parent / "data" / "wind_coeff.csv"
 
@@ -112,6 +113,19 @@ class Wind:
         the project requires at most 5 degrees.
     seed : random seed for all stochastic components, so runs are
         reproducible.
+
+    Gust implementation
+    -------------------
+    ``gust=True`` synthesizes a stationary realization of the one-sided
+    Davenport longitudinal spectrum
+
+        S_u(f) = 4 k U^2 x^2 / (f (1 + x^2)^(4/3)),
+        x = 1200 f / U,  k = 0.003,
+
+    as a sum of random-phase harmonics. ``gust_params`` may override
+    ``n_harmonics`` (256), ``f_min`` (1/600 Hz), ``f_max`` (2 Hz), and
+    ``davenport_k`` (0.003). Each harmonic amplitude is
+    ``sqrt(2 S_u(f_i) df_i)``, using logarithmic frequency-bin widths.
     """
 
     def __init__(self, mean_speed: float = 0.0, beta: float = 0.0, *,
@@ -120,7 +134,6 @@ class Wind:
                  gust_params: Dict | None = None, sigma_dir: float = 0.0,
                  tau_dir: float = 300.0, dir_limit: float = np.deg2rad(5.0),
                  seed: int | None = None):
-        # TODO: Store and use the parameters above in step().
         self.mean_speed = float(mean_speed)
         self.beta = float(beta)
         self.semantics = semantics
@@ -132,6 +145,32 @@ class Wind:
         self.tau_dir = float(tau_dir)
         self.dir_limit = float(dir_limit)
         self.seed = seed
+        self._slow = 0.0
+        self._gust_value = 0.0
+        self._direction_offset = 0.0
+        self._rng = np.random.default_rng(seed)
+        self._alpha_deg, self._coefficients = load_wind_coefficients()
+        self._gust_freq = np.empty(0)
+        self._gust_amplitude = np.empty(0)
+        self._gust_phase = np.empty(0)
+        if self.gust:
+            n_harmonics = int(self.gust_params.get("n_harmonics", 256))
+            f_min = float(self.gust_params.get("f_min", 1.0 / 600.0))
+            f_max = float(self.gust_params.get("f_max", 2.0))
+            davenport_k = float(self.gust_params.get("davenport_k", 0.003))
+            if n_harmonics < 1 or f_min <= 0.0 or f_max <= f_min or davenport_k <= 0.0:
+                raise ValueError("invalid Davenport gust spectrum parameters")
+            edges = np.geomspace(f_min, f_max, n_harmonics + 1)
+            self._gust_freq = np.sqrt(edges[:-1] * edges[1:])
+            bin_widths = np.diff(edges)
+            reference_speed = max(abs(self.mean_speed), 1e-6)
+            reduced_frequency = 1200.0 * self._gust_freq / reference_speed
+            spectrum = (
+                4.0 * davenport_k * reference_speed**2 * reduced_frequency**2
+                / (self._gust_freq * (1.0 + reduced_frequency**2)**(4.0 / 3.0))
+            )
+            self._gust_amplitude = np.sqrt(2.0 * spectrum * bin_widths)
+            self._gust_phase = self._rng.uniform(0.0, 2.0 * np.pi, n_harmonics)
 
     def step(
         self,
@@ -140,9 +179,59 @@ class Wind:
         eta: np.ndarray,
         nu: np.ndarray,
     ) -> Tuple[np.ndarray, Dict[str, float]]:
-        # TODO: Replace this placeholder with your wind load model.
-        # Default: no wind loads.
-        tau_w6 = np.zeros(6)
-        info = {"U": 0.0, "beta_ned": 0.0, "alpha_body": 0.0,
-                "U_mean": 0.0, "U_gust": 0.0}
-        return tau_w6, info
+        if self.semantics not in {"from", "towards"}:
+            raise ValueError("semantics must be 'from' or 'towards'")
+        if dt < 0.0:
+            raise ValueError("dt must be non-negative")
+
+        if self.sigma_slow > 0.0:
+            if self.tau_slow <= 0.0:
+                raise ValueError("tau_slow must be > 0 when sigma_slow is nonzero")
+            decay = np.exp(-dt / self.tau_slow)
+            self._slow = decay * self._slow + self.sigma_slow * np.sqrt(1.0 - decay**2) * self._rng.normal()
+        u_mean = max(0.0, self.mean_speed + self._slow)
+
+        if self.gust:
+            if dt > 0.0 and self._gust_freq[-1] >= 0.5 / dt:
+                raise ValueError("gust f_max must be below the simulation Nyquist frequency")
+            u_gust = float(np.dot(
+                self._gust_amplitude,
+                np.cos(2.0 * np.pi * self._gust_freq * t + self._gust_phase),
+            ))
+        else:
+            u_gust = 0.0
+
+        if self.sigma_dir > 0.0:
+            if self.tau_dir <= 0.0:
+                raise ValueError("tau_dir must be > 0 when sigma_dir is nonzero")
+            decay = np.exp(-dt / self.tau_dir)
+            self._direction_offset = decay * self._direction_offset + self.sigma_dir * np.sqrt(1.0 - decay**2) * self._rng.normal()
+            self._direction_offset = float(np.clip(self._direction_offset, -self.dir_limit, self.dir_limit))
+        else:
+            self._direction_offset = 0.0
+
+        ambient_speed = u_mean + u_gust
+        beta_mean = self.beta + (np.pi if self.semantics == "from" else 0.0)
+        beta_ned = wrap_angle_pi(beta_mean + self._direction_offset)
+        wind_ned = ambient_speed * np.array([np.cos(beta_ned), np.sin(beta_ned)])
+        psi = float(np.asarray(eta, dtype=float).reshape(6)[5])
+        c, s = np.cos(psi), np.sin(psi)
+        wind_body = np.array([c * wind_ned[0] + s * wind_ned[1],
+                              -s * wind_ned[0] + c * wind_ned[1]])
+        vessel_body = np.asarray(nu, dtype=float).reshape(6)[:2]
+        relative_body = wind_body - vessel_body
+        relative_speed = float(np.linalg.norm(relative_body))
+        alpha_body = float(np.arctan2(relative_body[1], relative_body[0]) % (2.0 * np.pi))
+        alpha_deg = np.degrees(alpha_body)
+        coefficients = np.array([
+            np.interp(alpha_deg, self._alpha_deg, self._coefficients[:, i])
+            for i in range(self._coefficients.shape[1])
+        ])
+        tau_w6 = relative_speed**2 * coefficients
+        return tau_w6, {
+            "U": ambient_speed,
+            "beta_ned": beta_ned,
+            "alpha_body": alpha_body,
+            "U_mean": u_mean,
+            "U_gust": u_gust,
+        }
