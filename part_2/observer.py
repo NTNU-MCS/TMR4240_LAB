@@ -220,7 +220,7 @@ class KalmanFilterObserver(Observer):
         # q_b: bias noise intensity [N^2/s, N^2/s, (Nm)^2/s]. Start: 2*sigma_b^2/T_b.
         # Continuous-time intensities; converted to per-sample Q = Qc/dt inside step().
         self.q_w = (1.0, 1.0, 1.0)
-        self.q_b = (3.2e6, 3.2e6, 12.8e6)
+        self.q_b = (1.0e5, 1.0e5, 4.0e5)
         self.Qc = np.diag(np.concatenate([self.q_w, self.q_b]))  # 6x6 diagonal [Q_w, Q_b]
 
         # ======== Fixed parameters ========
