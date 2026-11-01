@@ -56,17 +56,6 @@ class Observer:
         )
 
 
-# def right_pi(angle: float) -> float:
-#     """Makes degree in right intervall (-pi, pi]."""
-#     return (angle + np.pi) % (2 * np.pi) - np.pi
-
-
-# def _Rz(psi: float) -> np.ndarray:
-#     """3x3 rotaion matrix"""
-#     c, s = np.cos(psi), np.sin(psi)
-#     return np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
-
-
 class NonlinearPassiveObserver(Observer):
     """Nonlinear Passive Observer for R/V Gunnerus (3-DOF DP).
 
@@ -124,26 +113,43 @@ class NonlinearPassiveObserver(Observer):
         Tb = 1000.0
         self.Tb_inv = (1.0 / Tb) * np.eye(3)
 
-        # trying this values
-        # K1: wavestate correction
-        self.K1 = np.zeros((6, 3))
-        self.K1[1, 0] = 1e-3  # xi2_surge
-        self.K1[3, 1] = 1e-3 # xi2_sway
-        self.K1[5, 2] = 1e-5 # xi2_yaw
-
-        self.K2 = np.diag([0.09, 0.09, 0.09])  # position/heading correction gain
-
-        # K3 = M · K3_bar
-        K3_bar = np.diag([2.7e-3, 2.7e-3, 2.7e-3])  # positive diagonal (passivity condition)
-        self.K3 = self.M @ K3_bar  # passivity condition satisfied: K3 = M · K3_bar
-
-        self.K4 = np.diag([16, 16, 1.5e3])  # bias correction gain
-
         # states
         self.xi_hat = np.zeros(6)
         self.eta_hat = np.zeros(6)
         self.nu_hat = np.zeros(6)
         self.b_hat = np.zeros(3)
+
+        p = 0.1
+        Mii = np.diag(self.M)
+        self.K1 = np.zeros((6, 3))  # K1: wavestate correction
+        for i in range(3):
+            self.K1[2 * i, i] = 0.5
+            self.K1[2 * i + 1, i] = 0.2
+        self.K2 = np.diag([3 * p, 3 * p, 3 * p * 0.5])  # position/heading correction gain
+        self.K3 = self.M @ np.diag(
+            [3 * p**2] * 3
+        )  # positive diagonal (passivity condition), passivity condition satisfied: K3 = M · K3_bar
+        self.K4 = np.diag(2.0 * Mii * p**3) # bias correction gain
+
+        self.check_stability()
+
+    def check_stability(self):
+        """Eigenvalues of the linearised error dynamics (psi = 0). Must all be negative."""
+        S = np.hstack([np.eye(3), self.Cw, np.zeros((3, 6))])
+        A = np.zeros((15, 15))
+        A[0:3, 9:12] = np.eye(3)
+        A[3:9, 3:9] = self.Aw
+        A[9:12, 9:12] = -self.M_inv @ self.D
+        A[9:12, 12:15] = self.M_inv
+        A[12:15, 12:15] = -self.Tb_inv
+        A[0:3] -= self.K2 @ S
+        A[3:9] -= self.K1 @ S
+        A[9:12] -= self.M_inv @ self.K3 @ S
+        A[12:15] -= self.K4 @ S
+        worst = np.linalg.eigvals(A).real.max()
+        print(f"NPO slowest pole: {worst:+.4f}  ({'stable' if worst < 0 else 'UNSTABLE'})")
+        if worst >= 0:
+            raise ValueError("NPO gains give an unstable observer")
 
     def reset(self, eta0=None):
         """Called by the simulator with the true initial pose before each run."""
