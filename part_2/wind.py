@@ -58,6 +58,7 @@ and alpha_rw are the relative wind speed and angle in the BODY frame.
 from pathlib import Path
 from typing import Dict, Tuple
 import numpy as np
+from simulation.utils import ned_to_body_xy
 
 _WIND_COEFF_FILE = Path(__file__).resolve().parent.parent / "data" / "wind_coeff.csv"
 
@@ -133,6 +134,32 @@ class Wind:
         self.dir_limit = float(dir_limit)
         self.seed = seed
 
+        # Load wind coefficient table
+        self.alpha_deg, self.C6 = load_wind_coefficients()
+        self.rng = np.random.default_rng(seed)
+        self.U_slow = self.rng.normal(0, self.sigma_slow)
+        self.U_gust = 0.0
+        self.beta_slow = 0.0
+
+        # Harris wind spectrum parameters for Part 2 gusts
+        self.L = float(self.gust_params.get("L", 1800.0))
+        self.U10 = self.mean_speed
+        self.kappa_g = float(self.gust_params.get("kappa_g", 0.0026))
+        self.N_gust = int(self.gust_params.get("N", 500))
+
+        self.f_gust = np.linspace(0.001, 1.0, self.N_gust)
+        self.df_gust = self.f_gust[1] - self.f_gust[0]
+        self.phi_gust = self.rng.uniform(
+            0.0, 2.0 * np.pi, self.N_gust
+        )
+
+    def wind_coeffs(self, alpha_rw_deg: float) -> np.ndarray:
+        a = np.mod(alpha_rw_deg, 360.0)
+        return np.array([
+            np.interp(a, self.alpha_deg, self.C6[:, i], period=360.0)
+            for i in range(6)
+        ])
+    
     def step(
         self,
         t: float,
@@ -140,9 +167,82 @@ class Wind:
         eta: np.ndarray,
         nu: np.ndarray,
     ) -> Tuple[np.ndarray, Dict[str, float]]:
-        # TODO: Replace this placeholder with your wind load model.
-        # Default: no wind loads.
-        tau_w6 = np.zeros(6)
-        info = {"U": 0.0, "beta_ned": 0.0, "alpha_body": 0.0,
-                "U_mean": 0.0, "U_gust": 0.0}
+
+        # Slowly varying wind speed
+        U_mean = self.mean_speed + self.U_slow
+        if self.gust:
+            f_tilde = self.L * self.f_gust / self.U10
+            S_gust = (
+                4 * self.kappa_g * self.L * self.U10
+                / (2 + f_tilde**2)**(5 / 6)
+            )
+            self.U_gust = np.sum(
+                np.sqrt(2 * S_gust * self.df_gust)
+                * np.cos(2 * np.pi * self.f_gust * t + self.phi_gust)
+            )
+        else:
+            self.U_gust = 0.0
+
+        U_gust = self.U_gust        
+
+
+        
+        U_wind = max(U_mean + U_gust, 0.0) #No negative wind veolcity
+        #print("U_mean:", U_mean, "U_gust:", U_gust, "U_wind:", U_wind) #Prøver å finne ut hvorfor identiske plot
+
+        a = np.exp(-dt / self.tau_slow)
+        #b = self.sigma_slow**2 * (1 - a**2) #unødvendig å ha
+        self.U_slow = (
+            a * self.U_slow
+            + self.sigma_slow * np.sqrt(1 - a**2) * self.rng.normal()
+        )
+
+        # Slowly varying wind direction
+        a_dir = np.exp(-dt / self.tau_dir)
+        b_dir = self.sigma_dir * np.sqrt(1 - a_dir**2)
+
+        self.beta_slow = (
+            a_dir * self.beta_slow
+            + b_dir * self.rng.normal()
+        )
+
+        self.beta_slow = np.clip(
+            self.beta_slow,
+            -self.dir_limit,
+            self.dir_limit
+        )
+
+        beta_mean = self.beta + self.beta_slow
+
+        # Convert "from" to "towards"
+        if self.semantics == "from":
+            beta = (beta_mean + np.pi) % (2 * np.pi)
+        else:
+            beta = beta_mean
+
+            
+        # Relative wind velocity in BODY frame
+        V_wind_ned = np.array([
+            U_wind * np.cos(beta),
+            U_wind * np.sin(beta)
+        ])
+        V_rw_b = ned_to_body_xy(V_wind_ned, eta[5]) - np.array([
+            nu[0], nu[1]
+        ])
+
+        U_rw = np.sqrt(V_rw_b[0]**2 + V_rw_b[1]**2)
+        alpha_rw = np.arctan2(V_rw_b[1], V_rw_b[0])
+
+        # Wind loads
+        wind_coeffs = self.wind_coeffs(np.degrees(alpha_rw))
+        tau_w6 = U_rw**2 * wind_coeffs
+
+        info = {
+            "U": U_wind,
+            "beta_ned": beta,
+            "alpha_body": alpha_rw,
+            "U_mean": U_mean,
+            "U_gust": U_gust,
+        }
+
         return tau_w6, info
