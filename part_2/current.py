@@ -65,6 +65,20 @@ class Current:
         eta: np.ndarray,
         nu: np.ndarray,
     ) -> np.ndarray:
-        # TODO: Replace this placeholder with your current model.
-        # Default: no current.
-        return np.zeros(6)
+        # Direction: constant unless a varying direction is specified
+        if self.beta_end is None or self.duration <= 0.0:
+            beta = self.beta
+        else:
+            frac = float(np.clip(t / self.duration, 0.0, 1.0))
+            beta = self.beta + frac * float(self.beta_end - self.beta)
+
+        # Convert "from" direction to "towards"
+        if self.semantics == "from":
+            beta += np.pi
+
+        # Generalized NED current velocity
+        nu_c_ned = np.zeros(6)
+        nu_c_ned[0] = self.speed * np.cos(beta)
+        nu_c_ned[1] = self.speed * np.sin(beta)
+
+        return nu_c_ned
