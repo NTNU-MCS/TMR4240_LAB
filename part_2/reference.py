@@ -50,10 +50,6 @@ from part_2.config import RefAxisConfig
 from simulation.utils import wrap_angle_pi
 
 
-def _wrap(a: float) -> float:
-    return (a + np.pi) % (2.0 * np.pi) - np.pi
-
-
 class ReferenceModel:
     def __init__(self, dt, cfg_xy=None, cfg_psi=None):
         self.dt = float(dt)
