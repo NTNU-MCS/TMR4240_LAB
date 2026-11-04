@@ -29,25 +29,23 @@ import numpy as np
 
 def thrust_utilization(logs, thrusters) -> np.ndarray:
     """Instantaneous thrust utilisation U_T(t) in percent, from ACTUAL thrusts.
-
-    TODO (students): implement the definition above — the sum of the
-    magnitudes of the individual actuator forces (``logs.u``, one column per
-    thruster) as a percentage of the sum of the maximum nominal thrusts of
-    all active thrusters (``ThrusterConfig.u_max``).  Return one value per
-    time sample, shape ``(len(logs.t),)``.
     """
-    raise NotImplementedError(
-        "implement thrust_utilization() in part_2/utilization.py — the "
-        "definition is in the project text (Part 2, Simulation 5)")
+
+    u = np.asarray(logs.u, dtype=float)
+    u_max_total = sum(t.u_max for t in thrusters)
+
+    return 100 * np.abs(u).sum(axis=1) / u_max_total
 
 
 def average_utilization(logs, thrusters, t_from: float | None = None) -> float:
     """Average thrust utilisation [%] over ``t >= t_from`` (default: the second
     half of the run, so the transient is excluded).
-
-    TODO (students): implement — the time average of
-    :func:`thrust_utilization` over the evaluation window.
     """
-    raise NotImplementedError(
-        "implement average_utilization() in part_2/utilization.py — the "
-        "definition is in the project text (Part 2, Simulation 5)")
+
+    t = np.asarray(logs.t, dtype=float)
+    if t_from is None:
+        t_from = t[0] + 0.5 * (t[-1] - t[0])
+
+    window = t >= t_from
+
+    return float(np.mean(thrust_utilization(logs, thrusters)[window]))
