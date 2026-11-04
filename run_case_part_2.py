@@ -29,6 +29,7 @@ import sys
 import matplotlib.pyplot as plt
 import numpy as np
 
+from models.thruster_dynamics import ThrusterSet
 from part_2.config import Part2SimConfig, default_thrusters_part_2
 from part_2.controller import DPController
 from part_2.current import Current
@@ -79,6 +80,19 @@ SELECTED_OBSERVER = None
 # The value below is an EXAMPLE (5 m north, 5 m west, 10 deg of heading):
 # choose your own, and say in the report what it is and why it is a fair test.
 OBSERVER_OFFSET = np.array([5.0, -5.0, 0.0, 0.0, 0.0, np.deg2rad(10.0)])
+
+# Part 2, Simulation 7: loss of one azimuth thruster during station keeping,
+# in the design sea and in a demanding beam sea (wind, current and waves
+# co-linear from east). Each run with the failure is paired with an identical
+# run without it; both are evaluated over windows of the same length before
+# and after the failure.
+SIM7_T = 1200.0            # run length [s]
+SIM7_T_FAIL = 600.0        # time of the thruster failure [s]
+SIM7_FAILED = "Azimuth_1"  # starboard stern azimuth (y = +3 m)
+SIM7_ALARM_DELAY = 0.0     # delay before the allocator is told [s]
+SIM7_BEAM_FROM = np.deg2rad(90.0)                          # from east
+SIM7_BEAM_WIND, SIM7_BEAM_CURRENT = 18.0, 0.5              # [m/s]
+SIM7_BEAM_HS, SIM7_BEAM_TP = ROBUST_HS, ROBUST_TP          # Simulation 6 sea
 
 SCENARIO = "sim2"          # default scenario when run without arguments
 
@@ -320,13 +334,72 @@ def sim6():
     return logs
 
 
+class FailingThrusterSet(ThrusterSet):
+    """ThrusterSet in which one thruster stops abruptly at ``t_fail``.
+
+    From ``t_fail`` the failed unit produces zero thrust whatever it is
+    commanded and keeps its last angle. ``alarm_delay`` seconds later the
+    allocator is told (``set_available``), as a DP system is by the thruster
+    fault alarm, and allocates on the remaining thrusters only.
+    """
+
+    def __init__(self, thrusters, failed: int, t_fail: float, allocator,
+                 alarm_delay: float = 0.0, **kwargs):
+        super().__init__(thrusters, **kwargs)
+        self.failed, self.t_fail, self.alarm_delay = failed, t_fail, alarm_delay
+        self.allocator = allocator
+        self.t = 0.0
+
+    def reset(self) -> None:
+        super().reset()
+        self.t = 0.0
+        self.allocator.set_available(self.failed, True)
+
+    def step(self, u_cmd, alpha_cmd, dt):
+        if self.t >= self.t_fail - 1e-9:
+            u_cmd = np.array(u_cmd, dtype=float)
+            alpha_cmd = np.array(alpha_cmd, dtype=float)
+            u_cmd[self.failed] = 0.0
+            alpha_cmd[self.failed] = self.state[self.failed].alpha
+            self.state[self.failed].u = 0.0
+            if self.t >= self.t_fail + self.alarm_delay - 1e-9:
+                self.allocator.set_available(self.failed, False)
+        out = super().step(u_cmd, alpha_cmd, dt)
+        self.t += dt
+        return out
+
+
+def sim7_beam_environment():
+    """Demanding beam sea of Simulation 7: wind, current and waves from east."""
+    return (Current(SIM7_BEAM_CURRENT, SIM7_BEAM_FROM, semantics="from"),
+            Wind(SIM7_BEAM_WIND, SIM7_BEAM_FROM, semantics="from", sigma_slow=0.5, gust=True,
+                 sigma_dir=np.deg2rad(2.0), dir_limit=np.deg2rad(5.0), seed=SEED),
+            Waves(hs=SIM7_BEAM_HS, tp=SIM7_BEAM_TP, direction=SIM7_BEAM_FROM, seed=SEED))
+
+
 def sim7():
-    """Part 2, Simulation 7 — your own showcase.  Design it, explain it, discuss it."""
-    # TODO (students): replace this with your own scenario.
-    cfg = Part2SimConfig(dt=DT, T=600.0, use_observer=True, observer_type=selected_observer())
-    logs = run(cfg, np.zeros(6), environment())
-    standard_plots(logs, observer=True)
-    return logs
+    """Part 2, Simulation 7 — loss of one azimuth during station keeping
+    (selected observer), in the design sea and in a demanding beam sea, each
+    paired with an identical run without the failure."""
+    names = [th.name for th in default_thrusters_part_2()]
+    failed = names.index(SIM7_FAILED)
+    out = {}
+    for case, make_env in (("design sea", environment), ("beam sea", sim7_beam_environment)):
+        for label, fail in (("intact", False), ("failure", True)):
+            cfg = Part2SimConfig(dt=DT, T=SIM7_T, use_observer=True,
+                                 observer_type=selected_observer())
+            sim = make_sim(cfg)
+            if fail:
+                sim.thrusters = FailingThrusterSet(
+                    default_thrusters_part_2(), failed, SIM7_T_FAIL, sim.allocator,
+                    alarm_delay=SIM7_ALARM_DELAY, dynamics=cfg.thruster_dynamics)
+            current, wind, waves = make_env()
+            sim.reset_state()
+            out[(case, label)] = logs = sim.run(np.zeros(6), current=current, wind=wind,
+                                                waves=waves)
+            standard_plots(logs, setpoints=True, observer=True)
+            plt.gcf().suptitle(f"Simulation 7, {case}, {label}")
+    return out
 
 
 def bonus_sensor_noise():

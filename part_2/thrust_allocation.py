@@ -16,8 +16,14 @@ Design choices:
     wrench keeps the requested direction.
   * Angle ambiguity: for each azimuth we pick between (alpha, +u) and
     (alpha + pi, -u) the representation nearest alpha_now.
-  * Small-thrust hold: below u_min the azimuth angle is held at alpha_now
-    so the commanded angle does not chatter when the demand is ~0.
+  * Small-thrust hold: below u_min (2 kN, 2.5 % of the azimuth capacity)
+    the azimuth angle is held at alpha_now and the thrust is the component
+    of the demanded force along that direction, so the azimuths do not slew
+    after small, rapidly changing force demands. Raised from 100 N in
+    Part 1: with the 12 deg/s slew limit, the small demands of station
+    keeping otherwise turned the azimuths continuously.
+  * Thruster loss: set_available(i, False) removes thruster i from the
+    allocation (its columns of B_e are dropped) and commands it zero thrust.
 
 This is a steady-state allocator: thrust ramps and azimuth slew rates are
 left to the actuator model (models/thruster_dynamics.py), so the applied
@@ -38,7 +44,7 @@ class ThrustAllocator:
     def __init__(
         self,
         thrusters: List[ThrusterConfig],
-        u_min: float = 100.0,
+        u_min: float = 2000.0,
         n_bisect: int = 20,
     ):
         self.thrusters = thrusters
@@ -86,10 +92,23 @@ class ThrustAllocator:
 
         self.alpha_T = float(thrusters[i_T].alpha0)  # pi/2
         self._pinv_cache: dict = {}
+        # Thruster index (engine order) -> group in z, and which groups are usable
+        self._group_of = {i_T: 0, j1: 1, j2: 2}
+        self.available = [True, True, True]
 
         # Diagnostics from the last call (useful for logging / the report)
         self.last_scale = 1.0               # s in s * tau_c
         self.last_saturated: List[int] = []  # groups fixed at their limit
+
+    def set_available(self, index: int, available: bool) -> None:
+        """Mark thruster `index` (order of the thruster list) as available or
+        lost, e.g. on a thruster fault alarm."""
+        self.available[self._group_of[index]] = bool(available)
+
+    def available_rank(self) -> int:
+        """Rank of B_e restricted to the available thrusters (3 = all DOFs)."""
+        cols = [c for g in range(3) if self.available[g] for c in self.groups[g]]
+        return int(np.linalg.matrix_rank(self.B_e[:, cols])) if cols else 0
 
     def allocate(
         self,
@@ -143,9 +162,10 @@ class ThrustAllocator:
             mag = float(np.hypot(Fx, Fy))
 
             if mag < self.u_min:
-                # Demand ~0: hold the current angle, command zero thrust
-                u_cmd[j] = 0.0
+                # Small demand: hold the current angle and give the part of
+                # the force that lies along it
                 alpha_cmd[j] = float(a_now[k])
+                u_cmd[j] = float(Fx * np.cos(a_now[k]) + Fy * np.sin(a_now[k]))
                 continue
 
             alpha_pos = float(np.arctan2(Fy, Fx))
@@ -168,7 +188,7 @@ class ThrustAllocator:
         groups that were fixed at their limit.
         """
         z = np.zeros(5)
-        free = [0, 1, 2]
+        free = [g for g in range(3) if self.available[g]]  # lost thrusters stay at 0
         fixed: List[int] = []
         while free:
             cols = [c for g in free for c in self.groups[g]]
