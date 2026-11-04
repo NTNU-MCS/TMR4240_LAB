@@ -35,9 +35,10 @@ class RefAxisConfig:
     # TODO (students): none of the three values below is a tuned value — they
     # are placeholders. Choose the natural frequency, the damping ratio and
     # the rate limit yourself, and justify each of them in the report.
-    wn: float = 1.0                     # natural frequency [rad/s] (placeholder)
+    wn: float = 0.05                    # natural frequency [rad/s] (placeholder)
     zeta: float = 1.0                   # damping ratio [-] (placeholder)
     rate_limit: Optional[float] = None  # max |x_dot| (m/s or rad/s); None = off
+    prefilter: bool = True              # prefilter on/off (see part_2/reference.py)
 
 
 @dataclass
@@ -77,6 +78,36 @@ class Part2SimConfig:
     bypass_actuators: bool = False
     observer_kwargs: Dict[str, Any] = field(default_factory=dict)
 
+dataclass
+class ControllerConfig:
+    """
+    DP controller tuning (see part_2/controller.py).
+ 
+    Gains follow from the frequency-domain design on the diagonal of the
+    control plant inertia M3:  Kp = m*wc^2,  Kd = 2*zeta_c*wc*m,  Ki = Kp/Ti.
+    All 3-vectors are ordered [surge, sway, yaw].
+    """
+    # Closed-loop bandwidth [rad/s]
+    wc: tuple[float, float, float] = (0.2, 0.2, 0.2)
+    
+    # Damping ratio [-]
+    zeta_c: tuple[float, float, float] = (1.2, 1.2, 1.0)
+    
+    # Integral time constant [s]; Ki = Kp / Ti.
+    Ti: tuple[float, float, float] = (100.0, 100.0, 100.0)
+
+    # Anti-windup tracking time constants [s]; Kaw = 1 / (Tt * Ki).
+    Tt_pos: float = 20.0
+    Tt_psi: float = 20.0
+
+    # Cap on the integral term's contribution to tau_d [N, N, Nm]
+    I_limit: tuple[float, float, float] = (40_000.0, 48_000.0, 120_000.0)
+
+    # Back-calculation anti-windup on/off
+    anti_windup: bool = True
+
+    # Acceleration feedforward M3 @ acc_ref on/off.
+    feedforward: bool = True
 
 def default_thrusters_part_2() -> list[ThrusterConfig]:
     """Same Gunnerus thruster fit as Project Part 1.
