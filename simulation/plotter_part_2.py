@@ -44,21 +44,71 @@ def plot_observer(logs, figsize=(11, 7)):
     fig.tight_layout()
     return fig
 
+def _error_stats(e):
+    """RMS, mean (bias), std and max |e| of an error signal."""
+    e = np.asarray(e)
+    return {
+        "rms": float(np.sqrt(np.mean(e ** 2))),
+        "mean": float(np.mean(e)),
+        "std": float(np.std(e)),
+        "max": float(np.max(np.abs(e))),
+    }
 
-def plot_observer_error(logs, figsize=(11, 7), window=30.0):
+def _print_lf_error_table(observer_name, rows, window, t_skip, t_end_skip):
+    """rows: list of (label, unit, stats_vs_lf_truth)."""
+    excl = []
+    if t_skip > 0:
+        excl.append(f"first {t_skip:.0f} s")
+    if t_end_skip > 0:
+        excl.append(f"last {t_end_skip:.0f} s")
+    skip_txt = f", {' and '.join(excl)} excluded" if excl else ""
+    print(f"\nLF estimation error (estimate - {window:.0f} s mean of truth): "
+          f"{observer_name}{skip_txt}")
+    header = (f"{'Signal':<10}{'Unit':<7}"
+              f"{'RMS':>10}{'Mean':>10}{'Std':>10}{'Max|e|':>10}")
+    print(header)
+    print("-" * len(header))
+    for label, unit, s in rows:
+        print(f"{label:<10}{unit:<7}"
+              f"{s['rms']:>10.4f}{s['mean']:>10.4f}"
+              f"{s['std']:>10.4f}{s['max']:>10.4f}")
+    print()
+
+
+def plot_observer_error(logs, figsize=(11, 7), window=30.0,
+                        print_stats=False, t_skip=0.0, t_end_skip=None,
+                        observer_name=None):
     """Estimation errors: estimate minus truth, and estimate minus the
     low-frequency truth (``window``-second moving average of the true state).
 
     Left column: North, East, heading; right column: u, v, r.  The
     "vs. truth" error contains the wave-frequency motion the observer is
     meant to remove, the "vs. LF truth" error shows how well the
-    low-frequency state — what the controller needs — is reconstructed.
+    low-frequency state (what the controller needs) is reconstructed.
+
+    If ``print_stats`` is True, a table with RMS, mean (bias), standard
+    deviation and max |error| of the LF error is printed for every signal.
+    ``t_skip`` [s] excludes the initial transient and ``t_end_skip`` [s]
+    excludes the end of the run (default: ``window``, where the moving
+    average is unreliable) from the statistics only; the plots always show
+    the full time series.  ``observer_name`` overrides ``logs.observer_name``.
     """
+    if t_end_skip is None:
+        t_end_skip = window
+    name_str = observer_name if observer_name is not None else logs.observer_name
     dt = float(logs.t[1] - logs.t[0])
+    mask = ((logs.t >= logs.t[0] + t_skip) &
+            (logs.t <= logs.t[-1] - t_end_skip))
     fig, axes = plt.subplots(3, 2, figsize=figsize, sharex=True)
-    rows = ((0, "North error [m]", 1.0), (1, "East error [m]", 1.0),
-            (5, "Heading error [deg]", 180.0 / np.pi))
-    for row, (idx, label, scale) in enumerate(rows):
+
+    pose = ((0, "North", "m", 1.0), (1, "East", "m", 1.0),
+            (5, "Heading", "deg", 180.0 / np.pi))
+    vel = ((0, "u", "m/s", 1.0), (1, "v", "m/s", 1.0),
+           (5, "r", "deg/s", 180.0 / np.pi))
+
+    stats_rows = []
+
+    for row, (idx, name, unit, scale) in enumerate(pose):
         true = np.unwrap(logs.eta[:, idx]) if idx == 5 else logs.eta[:, idx]
         est = np.unwrap(logs.eta_est[:, idx]) if idx == 5 else logs.eta_est[:, idx]
         e_tot = est - true
@@ -67,14 +117,17 @@ def plot_observer_error(logs, figsize=(11, 7), window=30.0):
             e_tot, e_lf = _wrap_pi(e_tot), _wrap_pi(e_lf)
         axes[row, 0].plot(logs.t, scale * e_tot, lw=0.6, alpha=0.6, label="estimate - truth")
         axes[row, 0].plot(logs.t, scale * e_lf, label=f"estimate - LF truth ({window:.0f} s mean)")
-        axes[row, 0].set_ylabel(label)
-    vel = ((0, "u error [m/s]", 1.0), (1, "v error [m/s]", 1.0), (5, "r error [deg/s]", 180.0 / np.pi))
-    for row, (idx, label, scale) in enumerate(vel):
+        axes[row, 0].set_ylabel(f"{name} error [{unit}]")
+        stats_rows.append((name, unit, _error_stats(scale * e_lf[mask])))
+
+    for row, (idx, name, unit, scale) in enumerate(vel):
         e_tot = logs.nu_est[:, idx] - logs.nu[:, idx]
         e_lf = logs.nu_est[:, idx] - _moving_average(logs.nu[:, idx], dt, window)
         axes[row, 1].plot(logs.t, scale * e_tot, lw=0.6, alpha=0.6, label="estimate - truth")
         axes[row, 1].plot(logs.t, scale * e_lf, label="estimate - LF truth")
-        axes[row, 1].set_ylabel(label)
+        axes[row, 1].set_ylabel(f"{name} error [{unit}]")
+        stats_rows.append((name, unit, _error_stats(scale * e_lf[mask])))
+
     for ax in axes.flat:
         ax.grid(True, alpha=0.3)
         ax.axhline(0.0, color="k", lw=0.5)
@@ -82,8 +135,12 @@ def plot_observer_error(logs, figsize=(11, 7), window=30.0):
     axes[0, 1].legend(fontsize=8)
     axes[-1, 0].set_xlabel("Time [s]")
     axes[-1, 1].set_xlabel("Time [s]")
-    fig.suptitle(f"Observer estimation errors: {logs.observer_name}")
+    fig.suptitle(f"Observer estimation errors: {name_str}")
     fig.tight_layout()
+
+    if print_stats:
+        _print_lf_error_table(name_str, stats_rows, window, t_skip, t_end_skip)
+
     return fig
 
 
