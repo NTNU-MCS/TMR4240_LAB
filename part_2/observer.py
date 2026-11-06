@@ -445,9 +445,9 @@ class KalmanFilterObserver(Observer):
             self,
             # Tunable parameters (can be changed to 1x3 tuples)
             omega_p = 2.0 * np.pi / 8.0, # Bytt 8.0 med peak perioden fra bølgemodel/klass typ: "sim.waves.tp" hvis mulig
-            lam = 0.1, # Øk for å filtrere et bredere bånd
-            kw_sigma = np.array([2.0, 2.0, 0.5]), # Økning betyr større bølgebevegelse i korresponderende DOF
-            tb = 1000.0, # Tidskonstant for bias
+            lam = 0.2, # Øk for å filtrere et bredere bånd
+            kw = np.array([1.5, 1.0, 0.06]), # Økning betyr større bølgebevegelse i korresponderende DOF
+            tb = 600.0, # Tidskonstant for bias
             kb = np.array([1.0, 1.0, 1.0]), # Tune siste 3 diag-elementer i Q isteden
 
             *args,
@@ -457,7 +457,7 @@ class KalmanFilterObserver(Observer):
         # WF model
         Omega = omega_p * np.eye(3)
         Lambda = lam * np.eye(3)
-        Kw = np.diag(omega_p * lam * kw_sigma)
+        Kw = np.diag(kw)
 
         # WF state-space matrices
         self.Aw = np.block([[np.zeros((3, 3)), np.eye(3)], [- Omega @ Omega, - 2 * Lambda @ Omega]])
@@ -482,7 +482,7 @@ class KalmanFilterObserver(Observer):
 
         self.H = np.hstack([self.Cw, np.eye(3), np.zeros((3, 3)), np.zeros((3, 3))])
 
-        self.Q = np.diag([1.0]*3 + [1e2, 1e2, 1e6])
+        self.Q = np.diag([1.0]*3 + [1e8, 1e7, 1e9])
         self.R = np.diag(np.array([0.02, 0.02, 0.0034])**2)
         self.P0 = np.diag([1.0]*6 + [0.1**2]*3 + [1e5**2, 1e5**2, 1e7**2] + [0.1**2]*3)
 

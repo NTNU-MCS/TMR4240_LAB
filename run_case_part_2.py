@@ -71,7 +71,7 @@ SEED = 123
 # there first, then set this to "nonlinear_passive" or "kalman" and justify
 # the choice in the report.  It is None until you choose: every preset that
 # needs it stops with a message instead of picking one for you.
-SELECTED_OBSERVER = None
+SELECTED_OBSERVER = "kalman"
 
 # Initial observer error used by the convergence demonstration in Part 2,
 # Simulation 4.  The engine resets every observer at the TRUE initial pose, so
