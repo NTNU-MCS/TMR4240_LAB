@@ -134,29 +134,29 @@ class Wind:
         self.dir_limit = float(dir_limit)
         self.seed = seed
 
-        # Load wind coefficient table
+        #  load wind coefficient table
         self.alpha_deg, self.C6 = load_wind_coefficients()
-        self.rng = np.random.default_rng(seed)
-        self.U_slow = self.rng.normal(0, self.sigma_slow)
-        self.U_gust = 0.0
-        self.beta_slow = 0.0
+        self.rng =np.random.default_rng(seed) # seed=123
+        self.U_slow = self.rng.normal(0,  self.sigma_slow)
+        self.U_gust  =0.0
+        self.beta_slow =  0.0
 
-        # Harris wind spectrum parameters for Part 2 gusts
-        self.L = float(self.gust_params.get("L", 1800.0))
-        self.U10 = self.mean_speed
-        self.kappa_g = float(self.gust_params.get("kappa_g", 0.0026))
-        self.N_gust = int(self.gust_params.get("N", 500))
-
-        self.f_gust = np.linspace(0.001, 1.0, self.N_gust)
-        self.df_gust = self.f_gust[1] - self.f_gust[0]
-        self.phi_gust = self.rng.uniform(
+        # Harris wind spectrum parameters for part 2 gusts
+        self.L =float(self.gust_params.get("L" , 1800.0 ))
+        self.U10 =self.mean_speed
+        self.kappa_g =float(self.gust_params.get("kappa_g",  0.0026))
+        self.N_gust =int(self.gust_params.get("N", 500) )
+        self.f_gust =  np.linspace(0.001, 1.0 , self.N_gust)
+        self.df_gust =  self.f_gust[1] -  self.f_gust[0]
+        self.phi_gust =self.rng.uniform(
             0.0, 2.0 * np.pi, self.N_gust
         )
 
-    def wind_coeffs(self, alpha_rw_deg: float) -> np.ndarray:
-        a = np.mod(alpha_rw_deg, 360.0)
-        return np.array([
-            np.interp(a, self.alpha_deg, self.C6[:, i], period=360.0)
+    # Interpolate wind coefficients to find the values for the current wind angle
+    def wind_coeffs(self, alpha_rw_deg: float) -> np.ndarray :
+        a =np.mod(alpha_rw_deg, 360.0)
+        return np.array( [
+            np.interp(a,  self.alpha_deg, self.C6[: , i], period =360.0)
             for i in range(6)
         ])
     
@@ -168,13 +168,14 @@ class Wind:
         nu: np.ndarray,
     ) -> Tuple[np.ndarray, Dict[str, float]]:
 
-        # Slowly varying wind speed
-        U_mean = self.mean_speed + self.U_slow
+        #Slowly varying wind speed
+        U_mean =self.mean_speed + self.U_slow
+        #Harris, sum of freq. components with random phases to generate wind gusts
         if self.gust:
-            f_tilde = self.L * self.f_gust / self.U10
+            f_tilde =  self.L *  self.f_gust/ self.U10
             S_gust = (
                 4 * self.kappa_g * self.L * self.U10
-                / (2 + f_tilde**2)**(5 / 6)
+                / (2 + f_tilde**2)**(5 /  6)
             )
             self.U_gust = np.sum(
                 np.sqrt(2 * S_gust * self.df_gust)
@@ -187,59 +188,60 @@ class Wind:
 
 
         
-        U_wind = max(U_mean + U_gust, 0.0) #No negative wind veolcity
-        #print("U_mean:", U_mean, "U_gust:", U_gust, "U_wind:", U_wind) #Prøver å finne ut hvorfor identiske plot
-
-        a = np.exp(-dt / self.tau_slow)
+        U_wind =max(U_mean + U_gust,0.0) #max so no negative wind veolcity
+        
+        #updating slowly varying wind speed with first ordeer Gauss-Markov
+        a =np.exp(-dt /  self.tau_slow )
         #b = self.sigma_slow**2 * (1 - a**2) #unødvendig å ha
-        self.U_slow = (
+        self.U_slow =(
             a * self.U_slow
-            + self.sigma_slow * np.sqrt(1 - a**2) * self.rng.normal()
+            + self.sigma_slow * np.sqrt(1 - a**2) *self.rng.normal()
         )
 
-        # Slowly varying wind direction
-        a_dir = np.exp(-dt / self.tau_dir)
-        b_dir = self.sigma_dir * np.sqrt(1 - a_dir**2)
+        #  adding a slowly varying wind direction, np.clip to not exceed the dir_limit
+        a_dir =np.exp(-dt /  self.tau_dir)
+        b_dir =  self.sigma_dir * np.sqrt(1 -  a_dir**2)
 
-        self.beta_slow = (
-            a_dir * self.beta_slow
+        self.beta_slow =  (
+            a_dir *  self.beta_slow
             + b_dir * self.rng.normal()
         )
 
-        self.beta_slow = np.clip(
+        self.beta_slow =np.clip(
             self.beta_slow,
             -self.dir_limit,
             self.dir_limit
         )
 
-        beta_mean = self.beta + self.beta_slow
+        beta_mean =self.beta + self.beta_slow
 
-        # Convert "from" to "towards"
-        if self.semantics == "from":
-            beta = (beta_mean + np.pi) % (2 * np.pi)
+        #Converting the wind direction  from "from " to "toward"
+        if self.semantics =="from":
+            beta =(beta_mean  + np.pi) % (2 *  np.pi)
         else:
-            beta = beta_mean
+            beta =  beta_mean
 
             
-        # Relative wind velocity in BODY frame
-        V_wind_ned = np.array([
-            U_wind * np.cos(beta),
-            U_wind * np.sin(beta)
+        # Relative wind velocity in NED 
+        V_wind_ned =np.array([
+            U_wind *  np.cos(beta),
+            U_wind * np.sin(beta )
         ])
-        V_rw_b = ned_to_body_xy(V_wind_ned, eta[5]) - np.array([
+        #Relative wind in BODY, subtracting vessel velocity
+        V_rw_b =ned_to_body_xy(V_wind_ned, eta[5])  - np.array([
             nu[0], nu[1]
         ])
 
-        U_rw = np.sqrt(V_rw_b[0]**2 + V_rw_b[1]**2)
-        alpha_rw = np.arctan2(V_rw_b[1], V_rw_b[0])
+        U_rw = np.sqrt(V_rw_b[0]**2 + V_rw_b[1]**2 )
+        alpha_rw =np.arctan2(V_rw_b[1],  V_rw_b[0])
+        
+        # Wind coeffs from relativ angle, calculating the 6 load components
+        wind_coeffs =self.wind_coeffs(np.degrees(alpha_rw ))
+        tau_w6 =U_rw**2 *  wind_coeffs
 
-        # Wind loads
-        wind_coeffs = self.wind_coeffs(np.degrees(alpha_rw))
-        tau_w6 = U_rw**2 * wind_coeffs
-
-        info = {
+        info ={
             "U": U_wind,
-            "beta_ned": beta,
+            "beta_ned":  beta,
             "alpha_body": alpha_rw,
             "U_mean": U_mean,
             "U_gust": U_gust,
