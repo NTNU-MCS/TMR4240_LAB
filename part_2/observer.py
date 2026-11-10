@@ -145,10 +145,6 @@ class NonlinearPassiveObserver(Observer):
             self.eta_hat[2] = wrap_angle_pi(self.eta_hat[2])
 
     def step(self, t, dt, eta_measured, tau_est):
-        #Checking the time-step
-        if dt > self.dt_limit:
-            raise ValueError(f"dt={dt:g}s exceeds the wave filter limit {self.dt_limit:.3g}s.")
-        
         eta_meas6 = np.asarray(eta_measured, dtype=float).reshape(6)
         y = eta_meas6[[0, 1, 5]]
         tau = np.asarray(tau_est, dtype=float).reshape(6)[[0, 1, 5]]
