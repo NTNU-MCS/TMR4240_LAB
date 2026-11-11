@@ -102,3 +102,5 @@ class ReferenceModel:
             self.eta_ref[5] = wrap_angle_pi(self.eta_ref[5])
     
             return self.eta_ref.copy(), self.nu_ref.copy(), self.acc_ref.copy()
+
+
